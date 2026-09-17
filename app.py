@@ -1,273 +1,43 @@
 import streamlit as st
-import pandas as pd
 import requests
-from datetime import datetime
-import streamlit.components.v1 as components
 
-# Timezone support (Python 3.9+)
+st.subheader("🔍 IMD API Diagnostic Tool")
+
+api_key = st.secrets.get("IMD_API_KEY", "")
+email = st.secrets.get("IMD_EMAIL", "")
+password = st.secrets.get("IMD_PASSWORD", "")
+
+# 1. Test JWT Authentication Endpoint
+st.write("--- **Testing Token Generation** ---")
+auth_url = "https://api.imd.gov.in/api/oauth/token.php"
 try:
-    from zoneinfo import ZoneInfo
-    IST = ZoneInfo("Asia/Kolkata")
-except ImportError:
-    import pytz
-    IST = pytz.timezone("Asia/Kolkata")
-
-# --- PAGE CONFIGURATION ---
-st.set_page_config(
-    page_title="Campus Digital Twin",
-    page_icon="🏛️",
-    layout="wide"
-)
-
-st.title("🏛️ Campus Digital Twin: Electrical & Energy Analytics")
-
-# --- LIVE DATE & TIME FRAGMENT (Updates every second in IST) ---
-@st.fragment(run_every="1s")
-def render_live_clock():
-    current_time = datetime.now(IST)
-    formatted_date = current_time.strftime("%A, %d %B %Y")
-    formatted_time = current_time.strftime("%H:%M:%S IST")
-    
-    time_col1, time_col2 = st.columns(2)
-    with time_col1:
-        st.markdown(f"📅 **System Date:** `{formatted_date}`")
-    with time_col2:
-        st.markdown(f"🕒 **Live System Time:** `{formatted_time}`")
-
-render_live_clock()
-
-st.divider()
-
-# --- SIDEBAR: GOOGLE CALENDAR ---
-with st.sidebar:
-    st.header("📅 Campus Calendar")
-    selected_date = st.date_input("Select Date", datetime.now(IST))
-    
-    st.subheader("📆 Google Calendar Integration")
-    st.caption("Embedded Campus Maintenance & Load Shift Schedule")
-    
-    calendar_embed_url = (
-        "https://calendar.google.com/calendar/embed?"
-        "height=300&wkst=1&ctz=Asia%2FKolkata&showTitle=0&showNav=1&showDate=1"
-        "&showPrint=0&showTabs=0&showCalendars=0&showTz=0&mode=AGENDA"
+    auth_res = requests.post(
+        auth_url, 
+        json={"email": email, "password": password}, 
+        headers={"Content-Type": "application/json"},
+        timeout=10
     )
-    components.iframe(calendar_embed_url, height=320, scrolling=True)
+    st.write(f"**Token Response Code:** `{auth_res.status_code}`")
+    st.json(auth_res.json())
+    jwt_token = auth_res.json().get("access_token")
+except Exception as e:
+    st.error(f"Token Generation Failed: {e}")
+    jwt_token = None
 
-# --- IMD API AUTHENTICATION & WEATHER FUNCTIONS ---
-
-# Cache JWT token for 58 minutes (3480 seconds)
-@st.cache_data(ttl=3480)
-def get_imd_jwt_token():
-    auth_url = "https://api.imd.gov.in/api/oauth/token.php"
-    email = st.secrets.get("IMD_EMAIL", "")
-    password = st.secrets.get("IMD_PASSWORD", "")
-    
-    if not email or not password:
-        return None
-    
-    payload = {"email": email, "password": password}
-    headers = {"Content-Type": "application/json"}
-    
-    try:
-        response = requests.post(auth_url, json=payload, headers=headers, timeout=5)
-        if response.status_code == 200:
-            return response.json().get("access_token")
-    except Exception:
-        return None
-    return None
-
-# Cache current weather for 1 hour (3600 seconds)
-@st.cache_data(ttl=3600)
-def fetch_imd_weather():
-    api_key = st.secrets.get("IMD_API_KEY", "")
-    jwt_token = get_imd_jwt_token()
-    
-    if not api_key or not jwt_token:
-        return {"temp": 32.5, "humidity": 55, "desc": "Partly Cloudy (Fallback)", "icon": "⛅"}
-    
-    url = "https://api.imd.gov.in/api/weather/current?city=Hanamkonda"
+# 2. Test Weather Endpoint with Token & API Key
+if jwt_token and api_key:
+    st.write("--- **Testing Weather Data Endpoint** ---")
+    weather_url = "https://api.imd.gov.in/api/v1/cityforecast"
     headers = {
         "X-API-KEY": api_key,
         "Authorization": f"Bearer {jwt_token}"
     }
-    
     try:
-        res = requests.get(url, headers=headers, timeout=5)
-        if res.status_code == 200:
-            data = res.json()
-            weather_info = data.get("weather", {}).get("current", {})
-            return {
-                "temp": weather_info.get("temperature", {}).get("value", 32.5),
-                "humidity": weather_info.get("humidity", {}).get("value", 55),
-                "desc": "IMD Live Feed",
-                "icon": "🏛️"
-            }
-    except Exception:
-        pass
-        
-    return {"temp": 32.5, "humidity": 55, "desc": "Partly Cloudy (Fallback)", "icon": "⛅"}
-
-# Cache 7-day forecast for 1 hour (3600 seconds)
-@st.cache_data(ttl=3600)
-def fetch_imd_7day_forecast():
-    api_key = st.secrets.get("IMD_API_KEY", "")
-    jwt_token = get_imd_jwt_token()
-    
-    if not api_key or not jwt_token:
-        return None
-    
-    url = "https://api.imd.gov.in/api/v1/cityforecastloc"
-    headers = {
-        "X-API-KEY": api_key,
-        "Authorization": f"Bearer {jwt_token}"
-    }
-    
-    try:
-        res = requests.get(url, headers=headers, params={"city": "Hanamkonda"}, timeout=5)
-        if res.status_code == 200:
-            data = res.json()
-            forecast_list = data.get("forecastData", data.get("data", []))
-            
-            parsed_rows = []
-            for item in forecast_list[:7]:
-                parsed_rows.append({
-                    "Date": item.get("date", "N/A"),
-                    "Max Temp (°C)": item.get("max_temp", item.get("temp_max", "N/A")),
-                    "Min Temp (°C)": item.get("min_temp", item.get("temp_min", "N/A")),
-                    "Weather": item.get("weather_description", item.get("forecast", "Clear"))
-                })
-            return pd.DataFrame(parsed_rows)
-    except Exception:
-        pass
-        
-    return None
-
-# --- SECTION 1: LIVE WEATHER DATA ---
-st.subheader("🌦️ Live Campus Weather (Hanamkonda - IMD Feed)")
-
-weather_data = fetch_imd_weather()
-
-w_col1, w_col2, w_col3 = st.columns(3)
-with w_col1:
-    st.metric(label="Temperature", value=f"{weather_data['temp']} °C")
-with w_col2:
-    st.metric(label="Humidity", value=f"{weather_data['humidity']} %")
-with w_col3:
-    st.metric(label="Data Source", value=f"{weather_data['icon']} {weather_data['desc']}")
-
-st.divider()
-
-# --- SECTION 2: TOP KPI PANELS ---
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.markdown("### ⚡ Total Consumption")
-    st.metric(label="(kWh) - Today", value="18,520")
-
-with col2:
-    st.markdown("### 🔌 Consumption Sum")
-    st.metric(label="(kW) - Real Power", value="1,241.00")
-
-with col3:
-    st.markdown("### ☀️ Total Generation")
-    st.metric(label="(kWh) - Today", value="91.13")
-
-with col4:
-    st.markdown("### 🔋 Generation Sum")
-    st.metric(label="(kW) - Real Power", value="72.01")
-
-st.divider()
-
-# --- SECTION 3: REAL TIME DATA TABLES ---
-col_left, col_right = st.columns(2)
-
-with col_left:
-    st.subheader("Real Time Data - Feeder Status")
-    real_time_data = {
-        "Sources": ["Gr1.EED_Solar", "Gr1.EED_Incomer_1", "Gr1.EED_Load_Feeder", "Gr1.Civil_Load_Feeder"],
-        "Voltage (V)": [416.07, 415.81, 416.38, 296.61],
-        "Current (A)": [47.68, 41.13, 15.47, 32.29],
-        "Power (kW)": [34.26, 30.00, 10.96, 12.88],
-        "PF": [-1.00, -0.99, 0.98, -0.96],
-        "Energy (kWh)": [74001, 239076, 31711, 66131]
-    }
-    st.dataframe(pd.DataFrame(real_time_data), use_container_width=True, hide_index=True)
-
-with col_right:
-    st.subheader("Power Balance Breakdown (kW)")
-    c_data = pd.DataFrame({
-        "Sources": ["Civil Feeder", "EED Incomer 1", "EED Incomer 2", "EED Load Feeder"],
-        "KW": [11, 29, 3, 13]
-    })
-    g_data = pd.DataFrame({
-        "Sources": ["EED Solar 1", "EED Solar 2"],
-        "KW": [38, 34]
-    })
-    c1, c2 = st.columns(2)
-    with c1: st.dataframe(c_data, use_container_width=True, hide_index=True)
-    with c2: st.dataframe(g_data, use_container_width=True, hide_index=True)
-
-st.divider()
-
-# --- SECTION 4: FORECASTING MATRIX ---
-st.header("🔮 Energy Forecasting Digital Twin")
-
-# ROW 1: SOLAR GENERATION FORECASTS
-st.subheader("☀️ Solar Generation Forecasts")
-sol_vst, sol_st = st.columns(2)
-
-with sol_vst:
-    st.info("⏱️ **Very Short-Term Prediction (Next Minute)**")
-    
-    m1, m2 = st.columns(2)
-    m1.metric(label="Predicted Power (T + 1 min)", value="72.18 kW", delta="+0.17 kW (+0.24%)")
-    m2.metric(label="95% CI Range", value="71.95 - 72.40 kW")
-
-with sol_st:
-    st.success("📅 **Short-Term Forecast (Week Ahead)**")
-    
-    m1, m2 = st.columns(2)
-    m1.metric(label="Est. 7-Day Generation", value="637.8 kWh", delta="+12 kWh vs prior week")
-    m2.metric(label="Daily Solar Window", value="06:30 – 18:15 IST")
-    
-    imd_forecast_df = fetch_imd_7day_forecast()
-    
-    if imd_forecast_df is not None and not imd_forecast_df.empty:
-        st.dataframe(imd_forecast_df, use_container_width=True, hide_index=True)
-    else:
-        solar_week_df = pd.DataFrame({
-            "Day": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-            "Est. Peak (kW)": [38.2, 38.8, 37.5, 39.1, 38.0, 36.4, 37.9],
-            "Est. Energy (kWh)": [91.5, 93.0, 89.2, 94.1, 91.0, 87.2, 91.8],
-            "Max Temp (°C)": [34.5, 35.0, 33.2, 35.8, 34.1, 31.8, 34.0],
-            "Min Temp (°C)": [24.1, 24.5, 23.8, 25.0, 24.2, 23.0, 23.9]
-        })
-        st.dataframe(solar_week_df, use_container_width=True, hide_index=True)
-
-st.divider()
-
-# ROW 2: CAMPUS LOAD FORECASTS
-st.subheader("⚡ Total Campus Load Forecasts")
-load_vst, load_st = st.columns(2)
-
-with load_vst:
-    st.info("⏱️ **Very Short-Term Prediction (Next Minute)**")
-    
-    m1, m2 = st.columns(2)
-    m1.metric(label="Predicted Load (T + 1 min)", value="1,244.5 kW", delta="+3.5 kW (+0.28%)")
-    m2.metric(label="95% CI Range", value="1,238 - 1,251 kW")
-
-with load_st:
-    st.success("📅 **Short-Term Forecast (Week Ahead)**")
-    
-    m1, m2 = st.columns(2)
-    m1.metric(label="Est. 7-Day Consumption", value="129.6 MWh", delta="-1.4 MWh vs prior week")
-    m2.metric(label="Projected Peak Demand", value="1,385 kW")
-    
-    load_week_df = pd.DataFrame({
-        "Day": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-        "Peak Demand (kW)": [1385, 1370, 1365, 1380, 1350, 1020, 980],
-        "Total Load (MWh)": [19.2, 19.0, 18.9, 19.1, 18.7, 12.8, 11.9],
-        "Day Type": ["Weekday", "Weekday", "Weekday", "Weekday", "Weekday", "Saturday", "Sunday"]
-    })
-    st.dataframe(load_week_df, use_container_width=True, hide_index=True)
+        w_res = requests.get(weather_url, headers=headers, timeout=10)
+        st.write(f"**Weather Response Code:** `{w_res.status_code}`")
+        if w_res.status_code == 200:
+            st.json(w_res.json())
+        else:
+            st.error(f"Error {w_res.status_code}: {w_res.text}")
+    except Exception as e:
+        st.error(f"Weather Fetch Failed: {e}")
