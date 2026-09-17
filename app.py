@@ -12,7 +12,7 @@ except ImportError:
     import pytz
     IST = pytz.timezone("Asia/Kolkata")
 
-# --- Page configuration ---
+# --- PAGE CONFIGURATION ---
 st.set_page_config(
     page_title="Campus Digital Twin",
     page_icon="🏛️",
@@ -21,7 +21,7 @@ st.set_page_config(
 
 st.title("🏛️ Campus Digital Twin: Electrical & Energy Analytics")
 
-# --- LIVE DATE & TIME FRAGMENT (Updates IST every second) ---
+# --- LIVE DATE & TIME FRAGMENT (Updates every second in IST) ---
 @st.fragment(run_every="1s")
 def render_live_clock():
     current_time = datetime.now(IST)
@@ -53,37 +53,97 @@ with st.sidebar:
     )
     components.iframe(calendar_embed_url, height=320, scrolling=True)
 
-# --- SECTION 1: LIVE WEATHER DATA (IMD API VIA SECRETS) ---
-st.subheader("🌦️ Live Campus Weather (Hanamkonda - IMD Feed)")
+# --- IMD API AUTHENTICATION & WEATHER FUNCTIONS ---
 
-def fetch_imd_weather():
-    # Safely retrieve IMD key from Streamlit secrets
-    api_key = st.secrets.get("IMD_API_KEY", None)
+# Cache JWT token for 58 minutes (3480 seconds)
+@st.cache_data(ttl=3480)
+def get_imd_jwt_token():
+    auth_url = "https://api.imd.gov.in/api/oauth/token.php"
+    email = st.secrets.get("IMD_EMAIL", "")
+    password = st.secrets.get("IMD_PASSWORD", "")
     
-    if not api_key:
+    if not email or not password:
+        return None
+    
+    payload = {"email": email, "password": password}
+    headers = {"Content-Type": "application/json"}
+    
+    try:
+        response = requests.post(auth_url, json=payload, headers=headers, timeout=5)
+        if response.status_code == 200:
+            return response.json().get("access_token")
+    except Exception:
+        return None
+    return None
+
+# Cache current weather for 1 hour (3600 seconds)
+@st.cache_data(ttl=3600)
+def fetch_imd_weather():
+    api_key = st.secrets.get("IMD_API_KEY", "")
+    jwt_token = get_imd_jwt_token()
+    
+    if not api_key or not jwt_token:
         return {"temp": 32.5, "humidity": 55, "desc": "Partly Cloudy (Fallback)", "icon": "⛅"}
     
-    city = "Hanamkonda"
-    url = f"https://weather.indianapi.in/india/weather?city={city}"
-    headers = {"x-api-key": api_key}
+    url = "https://api.imd.gov.in/api/weather/current?city=Hanamkonda"
+    headers = {
+        "X-API-KEY": api_key,
+        "Authorization": f"Bearer {jwt_token}"
+    }
     
     try:
         res = requests.get(url, headers=headers, timeout=5)
         if res.status_code == 200:
             data = res.json()
             weather_info = data.get("weather", {}).get("current", {})
-            temp = weather_info.get("temperature", {}).get("max", {}).get("value", 32.5)
-            humidity = weather_info.get("humidity", {}).get("morning", 55)
             return {
-                "temp": temp,
-                "humidity": humidity,
-                "desc": "IMD Station Feed",
+                "temp": weather_info.get("temperature", {}).get("value", 32.5),
+                "humidity": weather_info.get("humidity", {}).get("value", 55),
+                "desc": "IMD Live Feed",
                 "icon": "🏛️"
             }
-        else:
-            return {"temp": 32.5, "humidity": 55, "desc": "Partly Cloudy (Fallback)", "icon": "⛅"}
     except Exception:
-        return {"temp": 32.5, "humidity": 55, "desc": "Partly Cloudy (Fallback)", "icon": "⛅"}
+        pass
+        
+    return {"temp": 32.5, "humidity": 55, "desc": "Partly Cloudy (Fallback)", "icon": "⛅"}
+
+# Cache 7-day forecast for 1 hour (3600 seconds)
+@st.cache_data(ttl=3600)
+def fetch_imd_7day_forecast():
+    api_key = st.secrets.get("IMD_API_KEY", "")
+    jwt_token = get_imd_jwt_token()
+    
+    if not api_key or not jwt_token:
+        return None
+    
+    url = "https://api.imd.gov.in/api/v1/cityforecastloc"
+    headers = {
+        "X-API-KEY": api_key,
+        "Authorization": f"Bearer {jwt_token}"
+    }
+    
+    try:
+        res = requests.get(url, headers=headers, params={"city": "Hanamkonda"}, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            forecast_list = data.get("forecastData", data.get("data", []))
+            
+            parsed_rows = []
+            for item in forecast_list[:7]:
+                parsed_rows.append({
+                    "Date": item.get("date", "N/A"),
+                    "Max Temp (°C)": item.get("max_temp", item.get("temp_max", "N/A")),
+                    "Min Temp (°C)": item.get("min_temp", item.get("temp_min", "N/A")),
+                    "Weather": item.get("weather_description", item.get("forecast", "Clear"))
+                })
+            return pd.DataFrame(parsed_rows)
+    except Exception:
+        pass
+        
+    return None
+
+# --- SECTION 1: LIVE WEATHER DATA ---
+st.subheader("🌦️ Live Campus Weather (Hanamkonda - IMD Feed)")
 
 weather_data = fetch_imd_weather()
 
@@ -170,14 +230,19 @@ with sol_st:
     m1.metric(label="Est. 7-Day Generation", value="637.8 kWh", delta="+12 kWh vs prior week")
     m2.metric(label="Daily Solar Window", value="06:30 – 18:15 IST")
     
-    solar_week_df = pd.DataFrame({
-        "Day": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-        "Est. Peak (kW)": [38.2, 38.8, 37.5, 39.1, 38.0, 36.4, 37.9],
-        "Est. Energy (kWh)": [91.5, 93.0, 89.2, 94.1, 91.0, 87.2, 91.8],
-        "Max Temp (°C)": [34.5, 35.0, 33.2, 35.8, 34.1, 31.8, 34.0],
-        "Min Temp (°C)": [24.1, 24.5, 23.8, 25.0, 24.2, 23.0, 23.9]
-    })
-    st.dataframe(solar_week_df, use_container_width=True, hide_index=True)
+    imd_forecast_df = fetch_imd_7day_forecast()
+    
+    if imd_forecast_df is not None and not imd_forecast_df.empty:
+        st.dataframe(imd_forecast_df, use_container_width=True, hide_index=True)
+    else:
+        solar_week_df = pd.DataFrame({
+            "Day": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+            "Est. Peak (kW)": [38.2, 38.8, 37.5, 39.1, 38.0, 36.4, 37.9],
+            "Est. Energy (kWh)": [91.5, 93.0, 89.2, 94.1, 91.0, 87.2, 91.8],
+            "Max Temp (°C)": [34.5, 35.0, 33.2, 35.8, 34.1, 31.8, 34.0],
+            "Min Temp (°C)": [24.1, 24.5, 23.8, 25.0, 24.2, 23.0, 23.9]
+        })
+        st.dataframe(solar_week_df, use_container_width=True, hide_index=True)
 
 st.divider()
 
