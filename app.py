@@ -13,10 +13,16 @@ st.set_page_config(
 
 st.title("🏛️ Campus Digital Twin: Electrical & Energy Analytics")
 
-# --- LIVE DATE & TIME FRAGMENT (Updates every second independently) ---
+
+
+from datetime import datetime
+from zoneinfo import ZoneInfo  # Built-in module in Python 3.9+
+
+# --- LIVE DATE & TIME FRAGMENT ---
 @st.fragment(run_every="1s")
 def render_live_clock():
-    current_time = datetime.now()
+    # Force timezone to Indian Standard Time (UTC +5:30)
+    current_time = datetime.now(ZoneInfo("Asia/Kolkata"))
     formatted_date = current_time.strftime("%A, %d %B %Y")
     formatted_time = current_time.strftime("%H:%M:%S IST")
     
