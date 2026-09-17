@@ -18,7 +18,12 @@ st.title("🏛️ Campus Digital Twin: EED & Civil Load Feeder Data")
 st.subheader("🌦️ Live Campus Weather (Hanamkonda)")
 
 # TODO: Replace with your actual OpenWeatherMap API key later
-WEATHER_API_KEY = "YOUR_API_KEY_HERE"
+# New secure code:
+try:
+    WEATHER_API_KEY = st.secrets["WEATHER_API_KEY"]
+except Exception:
+    # Fallback just in case the secret isn't set up yet
+    WEATHER_API_KEY = "YOUR_API_KEY_HERE"
 CITY = "Hanamkonda,IN"
 
 def fetch_weather(api_key, city):
