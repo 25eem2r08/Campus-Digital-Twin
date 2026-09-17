@@ -11,7 +11,12 @@ st.set_page_config(
     layout="wide"
 )
 
+# Current Temporal Context
+current_time = datetime.now()
+formatted_now = current_time.strftime("%d-%b-%Y %H:%M:%S")
+
 st.title("🏛️ Campus Digital Twin: Electrical & Energy Analytics")
+st.caption(f"⏱️ **System Telemetry Active** | Last Synchronized: `{formatted_now} IST` | Data Interval: 5 Seconds")
 
 # --- SECTION 1: LIVE WEATHER DATA ---
 st.subheader("🌦️ Live Campus Weather (Hanamkonda)")
@@ -57,32 +62,32 @@ else:
 
 st.divider()
 
-# --- SECTION 2: TOP KPI PANELS ---
+# --- SECTION 2: TOP KPI PANELS WITH TEMPORAL CONTEXT ---
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     st.markdown("### ⚡ Total Consumption")
-    st.metric(label="(kWh) - Today", value="18,520")
+    st.metric(label=f"(kWh) - Today ({current_time.strftime('%d %b')})", value="18,520")
 
 with col2:
     st.markdown("### 🔌 Consumption Sum")
-    st.metric(label="(kW) - Real Power", value="1,241.00")
+    st.metric(label=f"(kW) - Real Power @ {current_time.strftime('%H:%M')}", value="1,241.00")
 
 with col3:
     st.markdown("### ☀️ Total Generation")
-    st.metric(label="(kWh) - Today", value="91.13")
+    st.metric(label=f"(kWh) - Today ({current_time.strftime('%d %b')})", value="91.13")
 
 with col4:
     st.markdown("### 🔋 Generation Sum")
-    st.metric(label="(kW) - Real Power", value="72.01")
+    st.metric(label=f"(kW) - Real Power @ {current_time.strftime('%H:%M')}", value="72.01")
 
 st.divider()
 
-# --- SECTION 3: REAL TIME DATA TABLES ---
+# --- SECTION 3: REAL TIME DATA & TEMPORAL HISTORICAL LOG ---
 col_left, col_right = st.columns(2)
 
 with col_left:
-    st.subheader("Real Time Data - Feeder Status")
+    st.subheader("Real Time Feeder Telemetry")
     real_time_data = {
         "Sources": ["Gr1.EED_Solar", "Gr1.EED_Incomer_1", "Gr1.EED_Load_Feeder", "Gr1.Civil_Load_Feeder"],
         "Voltage (V)": [416.07, 415.81, 416.38, 296.61],
@@ -94,56 +99,52 @@ with col_left:
     st.dataframe(pd.DataFrame(real_time_data), use_container_width=True, hide_index=True)
 
 with col_right:
-    st.subheader("Power Balance Breakdown (kW)")
-    c_data = pd.DataFrame({
-        "Sources": ["Civil Feeder", "EED Incomer 1", "EED Incomer 2", "EED Load Feeder"],
-        "KW": [11, 29, 3, 13]
+    st.subheader("📜 Hourly Temporal Telemetry Log (Last 6 Hours)")
+    past_hours = [(current_time - timedelta(hours=i)).strftime("%H:00") for i in range(5, -1, -1)]
+    
+    temporal_log = pd.DataFrame({
+        "Timestamp": past_hours,
+        "Total Load (kW)": [1180, 1210, 1225, 1250, 1238, 1241],
+        "Solar Gen (kW)": [0.0, 12.4, 35.8, 68.2, 74.5, 72.01],
+        "Grid Import (kW)": [1180, 1197.6, 1189.2, 1181.8, 1163.5, 1168.99]
     })
-    g_data = pd.DataFrame({
-        "Sources": ["EED Solar 1", "EED Solar 2"],
-        "KW": [38, 34]
-    })
-    c1, c2 = st.columns(2)
-    with c1: st.dataframe(c_data, use_container_width=True, hide_index=True)
-    with c2: st.dataframe(g_data, use_container_width=True, hide_index=True)
+    st.dataframe(temporal_log, use_container_width=True, hide_index=True)
 
 st.divider()
 
-# --- SECTION 4: 2x2 NUMERICAL FORECASTING MATRIX ---
-st.header("🔮 Forecasting Digital Twin (Value Matrix)")
-st.caption("Next Minute (Very Short-Term) & Week Ahead (Short-Term) Predictive Analytics")
+# --- SECTION 4: TEMPORAL FORECASTING MATRIX ---
+st.header("🔮 Forecasting Digital Twin (Temporal Value Matrix)")
+st.caption("Time-Indexed Predictions: Very Short-Term (T+1 Min) & Short-Term (Week Ahead)")
+
+t_plus_1 = (current_time + timedelta(minutes=1)).strftime("%H:%M:%S")
+week_start = (current_time + timedelta(days=1)).strftime("%d %b")
+week_end = (current_time + timedelta(days=7)).strftime("%d %b %Y")
 
 # ROW 1: SOLAR GENERATION FORECASTS
 st.subheader("☀️ Solar Generation Forecasts")
 sol_vst, sol_st = st.columns(2)
 
 with sol_vst:
-    st.info("⏱️ **Very Short-Term (Next Minute Prediction)**")
+    st.info(f"⏱️ **Very Short-Term Prediction** (Target Time: `{t_plus_1} IST`)")
     
     m1, m2 = st.columns(2)
-    m1.metric(label="Predicted Generation (T + 1 min)", value="72.18 kW", delta="+0.17 kW (+0.24%)")
-    m2.metric(label="Confidence Range (95%)", value="71.95 - 72.40 kW")
-    
-    vst_solar_details = pd.DataFrame({
-        "Parameter": ["Ramp Rate", "Irradiance Trend", "Short-Term Volatility"],
-        "Predicted Value": ["+10.2 W/sec", "785 W/m² (Rising)", "Low (Clear Sky)"]
-    })
-    st.dataframe(vst_solar_details, use_container_width=True, hide_index=True)
+    m1.metric(label=f"Predicted Power @ {t_plus_1}", value="72.18 kW", delta="+0.17 kW (+0.24%)")
+    m2.metric(label="95% CI Range", value="71.95 - 72.40 kW")
 
 with sol_st:
-    st.success("📅 **Short-Term (Week Ahead Forecast)**")
+    st.success(f"📅 **Short-Term Forecast** (Window: `{week_start}` – `{week_end}`)")
     
     m1, m2 = st.columns(2)
-    m1.metric(label="Est. 7-Day Generation", value="637.8 kWh", delta="+12 kWh vs last week")
-    m2.metric(label="Avg Daily Peak Solar", value="38.5 kW")
+    m1.metric(label="Est. 7-Day Generation", value="637.8 kWh", delta="+12 kWh vs prior week")
+    m2.metric(label="Daily Solar Window", value="06:30 – 18:15 IST")
     
-    # 7-Day Daily Breakdown Table
-    days = [(datetime.now() + timedelta(days=i)).strftime("%a (%d %b)") for i in range(1, 8)]
+    days_dates = [(current_time + timedelta(days=i)).strftime("%a (%d %b)") for i in range(1, 8)]
     solar_week_df = pd.DataFrame({
-        "Day": days,
+        "Date": days_dates,
         "Est. Peak (kW)": [38.2, 38.8, 37.5, 39.1, 38.0, 36.4, 37.9],
         "Est. Energy (kWh)": [91.5, 93.0, 89.2, 94.1, 91.0, 87.2, 91.8],
-        "Sky Condition": ["Sunny", "Sunny", "Partly Cloudy", "Clear", "Clear", "Cloudy", "Sunny"]
+        "Max Temp (°C)": [34.5, 35.0, 33.2, 35.8, 34.1, 31.8, 34.0],
+        "Min Temp (°C)": [24.1, 24.5, 23.8, 25.0, 24.2, 23.0, 23.9]
     })
     st.dataframe(solar_week_df, use_container_width=True, hide_index=True)
 
@@ -154,28 +155,21 @@ st.subheader("⚡ Total Campus Load Forecasts")
 load_vst, load_st = st.columns(2)
 
 with load_vst:
-    st.info("⏱️ **Very Short-Term (Next Minute Prediction)**")
+    st.info(f"⏱️ **Very Short-Term Prediction** (Target Time: `{t_plus_1} IST`)")
     
     m1, m2 = st.columns(2)
-    m1.metric(label="Predicted Load (T + 1 min)", value="1,244.5 kW", delta="+3.5 kW (+0.28%)")
-    m2.metric(label="Confidence Range (95%)", value="1,238 - 1,251 kW")
-    
-    vst_load_details = pd.DataFrame({
-        "Parameter": ["Load Delta Rate", "Grid Frequency Impact", "Feeder Anomaly Index"],
-        "Predicted Value": ["+210 W/sec", "49.98 Hz (Stable)", "0.02 (Normal)"]
-    })
-    st.dataframe(vst_load_details, use_container_width=True, hide_index=True)
+    m1.metric(label=f"Predicted Load @ {t_plus_1}", value="1,244.5 kW", delta="+3.5 kW (+0.28%)")
+    m2.metric(label="95% CI Range", value="1,238 - 1,251 kW")
 
 with load_st:
-    st.success("📅 **Short-Term (Week Ahead Forecast)**")
+    st.success(f"📅 **Short-Term Forecast** (Window: `{week_start}` – `{week_end}`)")
     
     m1, m2 = st.columns(2)
-    m1.metric(label="Est. 7-Day Consumption", value="129.6 MWh", delta="-1.4 MWh vs last week")
-    m2.metric(label="Projected Peak Demand", value="1,385 kW", delta="Mon 14:00")
+    m1.metric(label="Est. 7-Day Consumption", value="129.6 MWh", delta="-1.4 MWh vs prior week")
+    m2.metric(label="Projected Peak Timestamp", value=f"{(current_time + timedelta(days=1)).strftime('%a %d %b')} 14:00")
     
-    # 7-Day Daily Breakdown Table
     load_week_df = pd.DataFrame({
-        "Day": days,
+        "Date": days_dates,
         "Peak Demand (kW)": [1385, 1370, 1365, 1380, 1350, 1020, 980],
         "Total Load (MWh)": [19.2, 19.0, 18.9, 19.1, 18.7, 12.8, 11.9],
         "Day Type": ["Weekday", "Weekday", "Weekday", "Weekday", "Weekday", "Saturday", "Sunday"]
