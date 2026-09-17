@@ -11,25 +11,29 @@ st.set_page_config(
     layout="wide"
 )
 
-current_time = datetime.now()
-
 st.title("🏛️ Campus Digital Twin: Electrical & Energy Analytics")
 
-# --- DATE & TIME BAR ---
-time_col1, time_col2, time_col3 = st.columns([2, 2, 1])
-with time_col1:
-    st.markdown(f"📅 **System Date:** `{current_time.strftime('%A, %d %B %Y')}`")
-with time_col2:
-    st.markdown(f"🕒 **Live System Time:** `{current_time.strftime('%H:%M:%S IST')}`")
-with time_col3:
-    st.caption("🔄 Telemetry Interval: **5s**")
+# --- LIVE DATE & TIME FRAGMENT (Updates every second independently) ---
+@st.fragment(run_every="1s")
+def render_live_clock():
+    current_time = datetime.now()
+    formatted_date = current_time.strftime("%A, %d %B %Y")
+    formatted_time = current_time.strftime("%H:%M:%S IST")
+    
+    time_col1, time_col2 = st.columns(2)
+    with time_col1:
+        st.markdown(f"📅 **System Date:** `{formatted_date}`")
+    with time_col2:
+        st.markdown(f"🕒 **Live System Time:** `{formatted_time}`")
+
+render_live_clock()
 
 st.divider()
 
 # --- SIDEBAR: GOOGLE CALENDAR ---
 with st.sidebar:
     st.header("📅 Campus Calendar")
-    selected_date = st.date_input("Select Date", current_time)
+    selected_date = st.date_input("Select Date", datetime.now())
     
     st.subheader("📆 Google Calendar Integration")
     st.caption("Embedded Campus Maintenance & Load Shift Schedule")
