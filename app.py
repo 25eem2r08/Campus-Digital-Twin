@@ -4,6 +4,14 @@ import requests
 from datetime import datetime
 import streamlit.components.v1 as components
 
+# Timezone support (Python 3.9+)
+try:
+    from zoneinfo import ZoneInfo
+    IST = ZoneInfo("Asia/Kolkata")
+except ImportError:
+    import pytz
+    IST = pytz.timezone("Asia/Kolkata")
+
 # --- Page configuration ---
 st.set_page_config(
     page_title="Campus Digital Twin",
@@ -13,16 +21,10 @@ st.set_page_config(
 
 st.title("🏛️ Campus Digital Twin: Electrical & Energy Analytics")
 
-
-
-from datetime import datetime
-from zoneinfo import ZoneInfo  # Built-in module in Python 3.9+
-
-# --- LIVE DATE & TIME FRAGMENT ---
+# --- LIVE DATE & TIME FRAGMENT (Updates IST every second) ---
 @st.fragment(run_every="1s")
 def render_live_clock():
-    # Force timezone to Indian Standard Time (UTC +5:30)
-    current_time = datetime.now(ZoneInfo("Asia/Kolkata"))
+    current_time = datetime.now(IST)
     formatted_date = current_time.strftime("%A, %d %B %Y")
     formatted_time = current_time.strftime("%H:%M:%S IST")
     
@@ -39,7 +41,7 @@ st.divider()
 # --- SIDEBAR: GOOGLE CALENDAR ---
 with st.sidebar:
     st.header("📅 Campus Calendar")
-    selected_date = st.date_input("Select Date", datetime.now())
+    selected_date = st.date_input("Select Date", datetime.now(IST))
     
     st.subheader("📆 Google Calendar Integration")
     st.caption("Embedded Campus Maintenance & Load Shift Schedule")
@@ -51,47 +53,47 @@ with st.sidebar:
     )
     components.iframe(calendar_embed_url, height=320, scrolling=True)
 
-# --- SECTION 1: LIVE WEATHER DATA ---
-st.subheader("🌦️ Live Campus Weather (Hanamkonda)")
+# --- SECTION 1: LIVE WEATHER DATA (IMD API VIA SECRETS) ---
+st.subheader("🌦️ Live Campus Weather (Hanamkonda - IMD Feed)")
 
-try:
-    WEATHER_API_KEY = st.secrets["WEATHER_API_KEY"]
-except Exception:
-    WEATHER_API_KEY = "YOUR_API_KEY_HERE"
-
-CITY = "Hanamkonda,IN"
-
-def fetch_weather(api_key, city):
-    if api_key == "YOUR_API_KEY_HERE":
-        return {"temp": 32.5, "humidity": 55, "desc": "Partly Cloudy (Mock Data)", "icon": "⛅"}
+def fetch_imd_weather():
+    # Safely retrieve IMD key from Streamlit secrets
+    api_key = st.secrets.get("IMD_API_KEY", None)
+    
+    if not api_key:
+        return {"temp": 32.5, "humidity": 55, "desc": "Partly Cloudy (Fallback)", "icon": "⛅"}
+    
+    city = "Hanamkonda"
+    url = f"https://weather.indianapi.in/india/weather?city={city}"
+    headers = {"x-api-key": api_key}
+    
     try:
-        url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
-        res = requests.get(url)
+        res = requests.get(url, headers=headers, timeout=5)
         if res.status_code == 200:
             data = res.json()
+            weather_info = data.get("weather", {}).get("current", {})
+            temp = weather_info.get("temperature", {}).get("max", {}).get("value", 32.5)
+            humidity = weather_info.get("humidity", {}).get("morning", 55)
             return {
-                "temp": data["main"]["temp"],
-                "humidity": data["main"]["humidity"],
-                "desc": data["weather"][0]["description"].title(),
-                "icon": "🌡️" 
+                "temp": temp,
+                "humidity": humidity,
+                "desc": "IMD Station Feed",
+                "icon": "🏛️"
             }
         else:
-            return None
+            return {"temp": 32.5, "humidity": 55, "desc": "Partly Cloudy (Fallback)", "icon": "⛅"}
     except Exception:
-        return None
+        return {"temp": 32.5, "humidity": 55, "desc": "Partly Cloudy (Fallback)", "icon": "⛅"}
 
-weather_data = fetch_weather(WEATHER_API_KEY, CITY)
+weather_data = fetch_imd_weather()
 
-if weather_data:
-    w_col1, w_col2, w_col3 = st.columns(3)
-    with w_col1:
-        st.metric(label="Temperature", value=f"{weather_data['temp']} °C")
-    with w_col2:
-        st.metric(label="Humidity", value=f"{weather_data['humidity']} %")
-    with w_col3:
-        st.metric(label="Conditions", value=f"{weather_data['icon']} {weather_data['desc']}")
-else:
-    st.warning("Unable to fetch weather data. Check your API key in Streamlit Secrets.")
+w_col1, w_col2, w_col3 = st.columns(3)
+with w_col1:
+    st.metric(label="Temperature", value=f"{weather_data['temp']} °C")
+with w_col2:
+    st.metric(label="Humidity", value=f"{weather_data['humidity']} %")
+with w_col3:
+    st.metric(label="Data Source", value=f"{weather_data['icon']} {weather_data['desc']}")
 
 st.divider()
 
