@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import requests
 from datetime import datetime, timedelta
 
 # Page setup
@@ -13,8 +14,48 @@ st.set_page_config(
 
 st.title("🏛️ Campus Digital Twin: EED & Civil Load Feeder Data")
 
-# --- SECTION 1: TOP KPI PANELS ---
-# Replicating the panels from Screenshot 2026-09-17 095937.png
+# --- SECTION 1: LIVE WEATHER DATA ---
+st.subheader("🌦️ Live Campus Weather (Hanamkonda)")
+
+# TODO: Replace with your actual OpenWeatherMap API key later
+WEATHER_API_KEY = "YOUR_API_KEY_HERE"
+CITY = "Hanamkonda,IN"
+
+def fetch_weather(api_key, city):
+    # If no key is provided, return mock data to keep the UI intact
+    if api_key == "YOUR_API_KEY_HERE":
+        return {"temp": 32.5, "humidity": 55, "desc": "Partly Cloudy (Mock Data)", "icon": "⛅"}
+    
+    try:
+        # Example using OpenWeatherMap API
+        url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
+        res = requests.get(url)
+        data = res.json()
+        return {
+            "temp": data["main"]["temp"],
+            "humidity": data["main"]["humidity"],
+            "desc": data["weather"][0]["description"].title(),
+            "icon": "🌡️" 
+        }
+    except Exception as e:
+        return None
+
+weather_data = fetch_weather(WEATHER_API_KEY, CITY)
+
+if weather_data:
+    w_col1, w_col2, w_col3 = st.columns(3)
+    with w_col1:
+        st.metric(label="Temperature", value=f"{weather_data['temp']} °C")
+    with w_col2:
+        st.metric(label="Humidity", value=f"{weather_data['humidity']} %")
+    with w_col3:
+        st.metric(label="Conditions", value=f"{weather_data['icon']} {weather_data['desc']}")
+else:
+    st.warning("Weather API key invalid or API unreachable.")
+
+st.divider()
+
+# --- SECTION 2: TOP KPI PANELS ---
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
@@ -35,9 +76,8 @@ with col4:
 
 st.divider()
 
-# --- SECTION 2: REAL TIME DATA TABLE ---
+# --- SECTION 3: REAL TIME DATA TABLE ---
 st.subheader("Real Time Data")
-# Data extracted from Screenshot 2026-09-17 095836.png
 real_time_data = {
     "Sources": [
         "Gr1.EED_Research_Wing_Solar", 
@@ -56,13 +96,11 @@ real_time_data = {
     "Real Energy Into the Load (kWh)": [78165.0, 88867.5, 11904.5, 74001.9, 239076.5, 11502.4, 31711.3, 66131.1]
 }
 df_real_time = pd.DataFrame(real_time_data)
-# Displaying the dataframe full width
 st.dataframe(df_real_time, use_container_width=True, hide_index=True)
 
 st.divider()
 
-# --- SECTION 3: CONSUMPTION VS GENERATION BREAKDOWN ---
-# Replicating the detailed breakdown tables from Screenshot 2026-09-17 095937.png
+# --- SECTION 4: CONSUMPTION VS GENERATION BREAKDOWN ---
 col_c, col_g = st.columns(2)
 
 with col_c:
@@ -95,12 +133,11 @@ with col_g:
 
 st.divider()
 
-# --- SECTION 4: TIME SERIES & FORECAST (Preserved from previous setup) ---
+# --- SECTION 5: TIME SERIES & FORECAST ---
 st.subheader("Live Load vs. 24-Hour Forecast")
 
 now = datetime.now()
 timestamps = [now - timedelta(hours=i) for i in range(12, 0, -1)] + [now + timedelta(hours=i) for i in range(12)]
-# Using the sum of consumption (~90 kW) as the baseline for the dummy time series
 actual_load = [90 + np.sin(i / 2) * 15 + np.random.randint(-5, 5) for i in range(12)] + [None] * 12
 forecast_load = [None] * 11 + [actual_load[11]] + [90 + np.sin(i / 2) * 15 + np.random.randint(-3, 3) for i in range(12, 24)]
 
