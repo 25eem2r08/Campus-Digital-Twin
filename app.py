@@ -6,85 +6,109 @@ from datetime import datetime, timedelta
 
 # Page setup
 st.set_page_config(
-    page_title="Campus Electrical Analytics",
-    page_icon="⚡",
+    page_title="Campus Digital Twin",
+    page_icon="🏛️",
     layout="wide"
 )
 
-st.title("⚡ Campus Live & Forecasted Electrical Dashboard")
+st.title("🏛️ Campus Digital Twin: EED & Civil Load Feeder Data")
 
-# --- Top Row: Key Metrics ---
+# --- SECTION 1: TOP KPI PANELS ---
+# Replicating the panels from Screenshot 2026-09-17 095937.png
 col1, col2, col3, col4 = st.columns(4)
-col1.metric(label="Live Campus Load", value="1,240 kW", delta="+35 kW vs avg")
-col2.metric(label="Today's Consumption", value="18.4 MWh", delta="-2.1%")
-col3.metric(label="Peak Forecast (24h)", value="1,580 kW", delta="Expected 14:00")
-col4.metric(label="Power Factor", value="0.96", delta="Optimal (>0.95)")
+
+with col1:
+    st.markdown("### ⚡ Total Consumption")
+    st.metric(label="(KWH) - Today", value="194.40")
+
+with col2:
+    st.markdown("### 🔌 Consumption Sum")
+    st.metric(label="(KW) - Real Power", value="89.84")
+
+with col3:
+    st.markdown("### ☀️ Total Generation")
+    st.metric(label="(KWH) - Today", value="91.13")
+
+with col4:
+    st.markdown("### 🔋 Generation Sum")
+    st.metric(label="(KW) - Real Power", value="72.01")
 
 st.divider()
 
-# --- Generate Synthetic Live & Forecasted Data ---
+# --- SECTION 2: REAL TIME DATA TABLE ---
+st.subheader("Real Time Data")
+# Data extracted from Screenshot 2026-09-17 095836.png
+real_time_data = {
+    "Sources": [
+        "Gr1.EED_Research_Wing_Solar", 
+        "Gr1.EED_Research_Wing_Incomer_1",
+        "Gr1.EED_Research_Wing_Incomer_2",
+        "Gr1.EED_Solar",
+        "Gr1.EED_Incomer_1",
+        "Gr1.EED_Incomer_2",
+        "Gr1.EED_Load_Feeder",
+        "Gr1.Civil_Load_Feeder"
+    ],
+    "Voltage L-L Avg (V)": [421.51, 421.79, 419.85, 416.07, 415.81, 419.54, 416.38, 296.61],
+    "Current Avg (A)": [53.47, 38.95, 3.89, 47.68, 41.13, 4.61, 15.47, 32.29],
+    "Real Power (kW)": [38.87, 27.36, 2.49, 34.26, 30.00, 2.93, 10.96, 12.88],
+    "Power Factor": [1.00, -0.96, 0.89, -1.00, -0.99, 0.88, 0.98, -0.96],
+    "Real Energy Into the Load (kWh)": [78165.0, 88867.5, 11904.5, 74001.9, 239076.5, 11502.4, 31711.3, 66131.1]
+}
+df_real_time = pd.DataFrame(real_time_data)
+# Displaying the dataframe full width
+st.dataframe(df_real_time, use_container_width=True, hide_index=True)
+
+st.divider()
+
+# --- SECTION 3: CONSUMPTION VS GENERATION BREAKDOWN ---
+# Replicating the detailed breakdown tables from Screenshot 2026-09-17 095937.png
+col_c, col_g = st.columns(2)
+
+with col_c:
+    st.subheader("Total Consumption KW Breakdown")
+    consumption_data = {
+        "Sources": [
+            "Gr1.Civil_Load_Feeder",
+            "Gr1.EED_Incomer_1",
+            "Gr1.EED_Incomer_2",
+            "Gr1.EED_Load_Feeder",
+            "Gr1.EED_Research_Wing_Incomer_1",
+            "Gr1.EED_Research_Wing_Incomer_2",
+            "Sum"
+        ],
+        "Real Power (kW)": [11.00, 29.00, 3.00, 13.00, 31.00, 3.00, 89.84]
+    }
+    st.dataframe(pd.DataFrame(consumption_data), use_container_width=True, hide_index=True)
+
+with col_g:
+    st.subheader("Total Generation KW Breakdown")
+    generation_data = {
+        "Sources": [
+            "Gr1.EED_Research_Wing_Solar",
+            "Gr1.EED_Solar",
+            "Sum"
+        ],
+        "Real Power (kW)": [38.00, 34.00, 72.01]
+    }
+    st.dataframe(pd.DataFrame(generation_data), use_container_width=True, hide_index=True)
+
+st.divider()
+
+# --- SECTION 4: TIME SERIES & FORECAST (Preserved from previous setup) ---
+st.subheader("Live Load vs. 24-Hour Forecast")
+
 now = datetime.now()
-past_hours = [now - timedelta(hours=i) for i in range(12, 0, -1)]
-future_hours = [now + timedelta(hours=i) for i in range(12)]
+timestamps = [now - timedelta(hours=i) for i in range(12, 0, -1)] + [now + timedelta(hours=i) for i in range(12)]
+# Using the sum of consumption (~90 kW) as the baseline for the dummy time series
+actual_load = [90 + np.sin(i / 2) * 15 + np.random.randint(-5, 5) for i in range(12)] + [None] * 12
+forecast_load = [None] * 11 + [actual_load[11]] + [90 + np.sin(i / 2) * 15 + np.random.randint(-3, 3) for i in range(12, 24)]
 
-timestamps = past_hours + future_hours
+df_chart = pd.DataFrame({"Timestamp": timestamps, "Actual_kW": actual_load, "Forecast_kW": forecast_load})
 
-# Synthetic values for demonstration
-actual_load = [1000 + np.sin(i / 2) * 250 + np.random.randint(-20, 20) for i in range(12)] + [None] * 12
-forecast_load = [None] * 11 + [actual_load[11]] + [1000 + np.sin(i / 2) * 250 + np.random.randint(-10, 10) for i in range(12, 24)]
-
-df = pd.DataFrame({
-    "Timestamp": timestamps,
-    "Actual_kW": actual_load,
-    "Forecast_kW": forecast_load
-})
-
-# --- Main Time-Series Visualizer ---
 fig = go.Figure()
+fig.add_trace(go.Scatter(x=df_chart["Timestamp"], y=df_chart["Actual_kW"], mode="lines+markers", name="Live Load (kW)", line=dict(color="#10b981", width=3)))
+fig.add_trace(go.Scatter(x=df_chart["Timestamp"], y=df_chart["Forecast_kW"], mode="lines", name="24h Forecast (kW)", line=dict(color="#3b82f6", width=2.5, dash="dash")))
 
-# Actual Power Draw
-fig.add_trace(go.Scatter(
-    x=df["Timestamp"],
-    y=df["Actual_kW"],
-    mode="lines+markers",
-    name="Live Load (kW)",
-    line=dict(color="#10b981", width=3)
-))
-
-# Forecasted Curve
-fig.add_trace(go.Scatter(
-    x=df["Timestamp"],
-    y=df["Forecast_kW"],
-    mode="lines",
-    name="24h Forecast (kW)",
-    line=dict(color="#3b82f6", width=2.5, dash="dash")
-))
-
-fig.update_layout(
-    title="Campus Power Profile: Live Stream & 24-Hour Forecast",
-    xaxis_title="Time",
-    yaxis_title="Demand (kW)",
-    hovermode="x unified",
-    template="plotly_white"
-)
-
+fig.update_layout(xaxis_title="Time", yaxis_title="Demand (kW)", hovermode="x unified", template="plotly_white")
 st.plotly_chart(fig, use_container_width=True)
-
-# --- Sub-System Breakdown ---
-col_left, col_right = st.columns(2)
-
-with col_left:
-    st.subheader("Building-Wise Consumption")
-    building_df = pd.DataFrame({
-        "Building": ["Academic Block", "Hostels", "Central Library", "Research Labs"],
-        "Demand (kW)": [450, 380, 210, 200]
-    })
-    st.bar_chart(building_df.set_index("Building"))
-
-with col_right:
-    st.subheader("Grid vs. Renewable Generation")
-    sources_df = pd.DataFrame({
-        "Source": ["Main Grid", "Roof Solar PV", "Diesel Generator"],
-        "Power (kW)": [940, 300, 0]
-    })
-    st.dataframe(sources_df, use_container_width=True)
