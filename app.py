@@ -96,7 +96,7 @@ def fetch_imd_weather():
         if res.status_code == 200:
             data = res.json()
             
-            # Filter through station list for Hanamkonda or Warangal
+            # Filter station list for Hanamkonda or Warangal
             target_station = None
             if isinstance(data, list):
                 for station in data:
@@ -202,33 +202,27 @@ with col4:
 st.divider()
 
 # --- SECTION 3: REAL TIME DATA TABLES ---
-col_left, col_right = st.columns(2)
+st.subheader("Real Time Data")
 
-with col_left:
-    st.subheader("Real Time Data - Feeder Status")
-    real_time_data = {
-        "Sources": ["Gr1.EED_Solar", "Gr1.EED_Incomer_1", "Gr1.EED_Load_Feeder", "Gr1.Civil_Load_Feeder"],
-        "Voltage (V)": [416.07, 415.81, 416.38, 296.61],
-        "Current (A)": [47.68, 41.13, 15.47, 32.29],
-        "Power (kW)": [34.26, 30.00, 10.96, 12.88],
-        "PF": [-1.00, -0.99, 0.98, -0.96],
-        "Energy (kWh)": [74001, 239076, 31711, 66131]
-    }
-    st.dataframe(pd.DataFrame(real_time_data), use_container_width=True, hide_index=True)
+real_time_data = {
+    "Sources": [
+        "Gr1.EED_Research_Wing_Solar",
+        "Gr1.EED_Research_Wing_Incomer_1",
+        "Gr1.EED_Research_Wing_Incomer_2",
+        "Gr1.EED_Solar",
+        "Gr1.EED_Incomer_1",
+        "Gr1.EED_Incomer_2",
+        "Gr1.EED_Load_Feeder",
+        "Gr1.Civil_Load_Feeder"
+    ],
+    "Voltage L-L Avg (V)": [421.51, 421.79, 419.85, 416.07, 415.81, 419.54, 416.38, 296.61],
+    "Current Avg (A)": [53.47, 38.95, 3.89, 47.68, 41.13, 4.61, 15.47, 32.29],
+    "Real Power (kW)": [38.87, 27.36, 2.49, 34.26, 30.00, 2.93, 10.96, 12.88],
+    "Power Factor": [1.00, -0.96, 0.89, -1.00, -0.99, 0.88, 0.98, -0.96],
+    "Real Energy Into the Load (kWh)": [78165.03, 88867.56, 11904.58, 74001.94, 239076.54, 11502.40, 31711.39, 66131.13]
+}
 
-with col_right:
-    st.subheader("Power Balance Breakdown (kW)")
-    c_data = pd.DataFrame({
-        "Sources": ["Civil Feeder", "EED Incomer 1", "EED Incomer 2", "EED Load Feeder"],
-        "KW": [11, 29, 3, 13]
-    })
-    g_data = pd.DataFrame({
-        "Sources": ["EED Solar 1", "EED Solar 2"],
-        "KW": [38, 34]
-    })
-    c1, c2 = st.columns(2)
-    with c1: st.dataframe(c_data, use_container_width=True, hide_index=True)
-    with c2: st.dataframe(g_data, use_container_width=True, hide_index=True)
+st.dataframe(pd.DataFrame(real_time_data), use_container_width=True, hide_index=True)
 
 st.divider()
 
