@@ -14,6 +14,17 @@ except ImportError:
 
 st.title("📡 Real-Time Operational Telemetry")
 
+# --- SIDEBAR: CAMPUS CALENDAR ---
+with st.sidebar:
+    st.header("📆 Campus Calendar")
+    st.caption("Embedded Campus Maintenance & Load Schedule")
+    calendar_embed_url = (
+        "https://calendar.google.com/calendar/embed?"
+        "height=320&wkst=1&ctz=Asia%2FKolkata&showTitle=0&showNav=1&showDate=1"
+        "&showPrint=0&showTabs=0&showCalendars=0&showTz=0&mode=AGENDA"
+    )
+    components.iframe(calendar_embed_url, height=350, scrolling=True)
+
 # --- LIVE DATE & TIME FRAGMENT ---
 @st.fragment(run_every="1s")
 def render_live_clock():
@@ -28,40 +39,6 @@ def render_live_clock():
         st.markdown(f"🕒 **Live System Time:** `{formatted_time}`")
 
 render_live_clock()
-st.divider()
-
-# --- MAIN PAGE: DASHBOARD LIBRARY MENU & CALENDAR TOGGLE ---
-DASHBOARD_PAGES = [
-    "1. Real Time Data",
-    "3. EED Research Wing-Solar",
-    "4. EED Research Wing-Incomer-1",
-    "5. EED Research Wing-Incomer-2",
-    "6. EED Solar",
-    "7. EED Incomer-1",
-    "8. EED Incomer-2",
-    "9. EED Load Feeder",
-    "10. Civil Load Feeder",
-    "Consumption & Generation"
-]
-
-menu_col, cal_col = st.columns([2, 1])
-
-with menu_col:
-    selected_view = st.selectbox(
-        "📂 **Select Feeder or Dashboard View:**",
-        DASHBOARD_PAGES,
-        index=0
-    )
-
-with cal_col:
-    with st.expander("📆 Open Campus Calendar", expanded=False):
-        calendar_embed_url = (
-            "https://calendar.google.com/calendar/embed?"
-            "height=280&wkst=1&ctz=Asia%2FKolkata&showTitle=0&showNav=1&showDate=1"
-            "&showPrint=0&showTabs=0&showCalendars=0&showTz=0&mode=AGENDA"
-        )
-        components.iframe(calendar_embed_url, height=260, scrolling=True)
-
 st.divider()
 
 # --- IMD WEATHER API FUNCTIONS ---
@@ -105,111 +82,81 @@ def fetch_imd_weather():
         pass
     return {"temp": 32.5, "humidity": 55, "desc": "Partly Cloudy (Fallback)", "icon": "⛅"}
 
-# --- VIEW ROUTING ---
+# --- LIVE WEATHER & TOP OVERALL KPIS ---
+weather_data = fetch_imd_weather()
+w_col1, w_col2, w_col3 = st.columns(3)
+with w_col1: st.metric("Temperature", f"{weather_data['temp']} °C")
+with w_col2: st.metric("Humidity", f"{weather_data['humidity']} %")
+with w_col3: st.metric("Data Source", f"{weather_data['icon']} {weather_data['desc']}")
 
-# ----------------------------------------------------
-# OPTION 1: ALL FEEDERS REAL TIME DATA OVERVIEW
-# ----------------------------------------------------
-if selected_view == "1. Real Time Data":
-    weather_data = fetch_imd_weather()
-    w_col1, w_col2, w_col3 = st.columns(3)
-    with w_col1: st.metric("Temperature", f"{weather_data['temp']} °C")
-    with w_col2: st.metric("Humidity", f"{weather_data['humidity']} %")
-    with w_col3: st.metric("Data Source", f"{weather_data['icon']} {weather_data['desc']}")
+st.divider()
 
-    st.divider()
+col1, col2, col3, col4 = st.columns(4)
+with col1:
+    st.markdown("### ⚡ Total Consumption")
+    st.metric("(kWh) - Today", "18,520")
+with col2:
+    st.markdown("### 🔌 Consumption Sum")
+    st.metric("(kW) - Real Power", "1,241.00")
+with col3:
+    st.markdown("### ☀️ Total Generation")
+    st.metric("(kWh) - Today", "91.13")
+with col4:
+    st.markdown("### 🔋 Generation Sum")
+    st.metric("(kW) - Real Power", "72.01")
 
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.markdown("### ⚡ Total Consumption")
-        st.metric("(kWh) - Today", "18,520")
-    with col2:
-        st.markdown("### 🔌 Consumption Sum")
-        st.metric("(kW) - Real Power", "1,241.00")
-    with col3:
-        st.markdown("### ☀️ Total Generation")
-        st.metric("(kWh) - Today", "91.13")
-    with col4:
-        st.markdown("### 🔋 Generation Sum")
-        st.metric("(kW) - Real Power", "72.01")
+st.divider()
 
-    st.divider()
+# --- SECTION 1: ALL FEEDERS REAL TIME DATA TABLE ---
+st.subheader("📊 Real Time Data — All Feeder Network")
 
-    st.subheader("Real Time Data — All Feeders")
-    real_time_data = {
-        "Sources": [
-            "Gr1.EED_Research_Wing_Solar",
-            "Gr1.EED_Research_Wing_Incomer_1",
-            "Gr1.EED_Research_Wing_Incomer_2",
-            "Gr1.EED_Solar",
-            "Gr1.EED_Incomer_1",
-            "Gr1.EED_Incomer_2",
-            "Gr1.EED_Load_Feeder",
-            "Gr1.Civil_Load_Feeder"
-        ],
-        "Voltage L-L Avg (V)": [421.51, 421.79, 419.85, 416.07, 415.81, 419.54, 416.38, 296.61],
-        "Current Avg (A)": [53.47, 38.95, 3.89, 47.68, 41.13, 4.61, 15.47, 32.29],
-        "Real Power (kW)": [38.87, 27.36, 2.49, 34.26, 30.00, 2.93, 10.96, 12.88],
-        "Power Factor": [1.00, -0.96, 0.89, -1.00, -0.99, 0.88, 0.98, -0.96],
-        "Real Energy Into the Load (kWh)": [78165.03, 88867.56, 11904.58, 74001.94, 239076.54, 11502.40, 31711.39, 66131.13]
-    }
-    st.dataframe(pd.DataFrame(real_time_data), use_container_width=True, hide_index=True)
+real_time_data = {
+    "Sources": [
+        "Gr1.EED_Research_Wing_Solar",
+        "Gr1.EED_Research_Wing_Incomer_1",
+        "Gr1.EED_Research_Wing_Incomer_2",
+        "Gr1.EED_Solar",
+        "Gr1.EED_Incomer_1",
+        "Gr1.EED_Incomer_2",
+        "Gr1.EED_Load_Feeder",
+        "Gr1.Civil_Load_Feeder"
+    ],
+    "Voltage L-L Avg (V)": [421.51, 421.79, 419.85, 416.07, 415.81, 419.54, 416.38, 296.61],
+    "Current Avg (A)": [53.47, 38.95, 3.89, 47.68, 41.13, 4.61, 15.47, 32.29],
+    "Real Power (kW)": [38.87, 27.36, 2.49, 34.26, 30.00, 2.93, 10.96, 12.88],
+    "Power Factor": [1.00, -0.96, 0.89, -1.00, -0.99, 0.88, 0.98, -0.96],
+    "Real Energy Into the Load (kWh)": [78165.03, 88867.56, 11904.58, 74001.94, 239076.54, 11502.40, 31711.39, 66131.13]
+}
+st.dataframe(pd.DataFrame(real_time_data), use_container_width=True, hide_index=True)
 
-# ----------------------------------------------------
-# OPTION: CONSUMPTION & GENERATION
-# ----------------------------------------------------
-elif selected_view == "Consumption & Generation":
-    st.subheader("⚖️ Power Balance & Feeder Breakdown")
-    c_data = pd.DataFrame({
-        "Load Feeder": ["Civil Feeder", "EED Incomer 1", "EED Incomer 2", "EED Load Feeder"],
-        "Power (kW)": [12.88, 30.00, 2.93, 10.96]
-    })
-    g_data = pd.DataFrame({
-        "Solar Source": ["EED Research Wing Solar", "EED Main Solar"],
-        "Power (kW)": [38.87, 34.26]
-    })
-    c1, c2 = st.columns(2)
-    with c1: 
-        st.markdown("##### 🔌 Active Consumption (kW)")
-        st.dataframe(c_data, use_container_width=True, hide_index=True)
-    with c2: 
-        st.markdown("##### ☀️ Active Generation (kW)")
-        st.dataframe(g_data, use_container_width=True, hide_index=True)
+st.divider()
 
-# ----------------------------------------------------
-# INDIVIDUAL FEEDER DASHBOARDS
-# ----------------------------------------------------
-else:
-    feeder_name = selected_view.split(". ", 1)[-1]
-    is_solar = "Solar" in feeder_name
+# --- SECTION 2: INDIVIDUAL FEEDER DETAILED ANALYTICS (TABBED SINGLE PAGE) ---
+st.subheader("⚡ Individual Feeder Analytics & Comparisons")
 
-    # Feeder metadata simulation
-    if "Research Wing-Solar" in feeder_name:
-        kwh_val, cost_val = "100.34", "315.08"
-        kw_curve = [0, 0, 0, 0, 0, 0, 4, 11, 22, 25, 33, 25]
-    elif "EED Solar" in feeder_name:
-        kwh_val, cost_val = "91.13", "286.10"
-        kw_curve = [0, 0, 0, 0, 0, 0, 3, 9, 18, 22, 34, 28]
-    elif "Civil Load" in feeder_name:
-        kwh_val, cost_val = "112.50", "900.00"
-        kw_curve = [4, 4, 3, 3, 4, 6, 8, 12, 14, 13, 12, 11]
-    else:
-        kwh_val, cost_val = "240.00", "1,920.00"
-        kw_curve = [10, 9, 8, 8, 12, 18, 24, 30, 28, 27, 29, 26]
+feeders_list = [
+    "EED Research Wing Solar",
+    "EED Research Wing Incomer 1",
+    "EED Research Wing Incomer 2",
+    "EED Solar",
+    "EED Incomer 1",
+    "EED Incomer 2",
+    "EED Load Feeder",
+    "Civil Load Feeder"
+]
 
-    # TOP ROW: 3 CARDS
+tabs = st.tabs(feeders_list)
+
+def render_feeder_dashboard(feeder_name, is_solar, kwh_val, cost_val, kw_curve, yesterday_vals, today_vals):
     top_col1, top_col2, top_col3 = st.columns([1, 1, 1.5])
-
     with top_col1:
         st.markdown(f"### {'Generation' if is_solar else 'Consumption'} (KWH)")
         st.caption("21-09-2026 00:00 - 11:17")
         st.markdown(f"## ☀️ **{kwh_val}**" if is_solar else f"## ⚡ **{kwh_val}**")
-
     with top_col2:
         st.markdown("### Cost")
         st.caption("21-09-2026 00:00 - 11:17")
         st.markdown(f"## **₹ {cost_val}**")
-
     with top_col3:
         st.markdown("### kw")
         st.caption("21-09-2026 00:00 - 11:17 (India Standard Time)")
@@ -219,22 +166,42 @@ else:
 
     st.divider()
 
-    # BOTTOM ROW: YESTERDAY VS TODAY COMPARISON BAR CHART
     st.markdown(f"### {'Generation' if is_solar else 'Consumption'} Comparison (KWH)")
     st.caption("20-09-2026 - 11:17 (India Standard Time)")
-
     hours_full = [f"{h:02d}:00" for h in range(24)]
-    if is_solar:
-        yesterday_vals = [0, 0, 0, 0, 0, 0, 2, 13, 13, 25, 31, 28, 9, 21, 35, 32, 22, 12, 3, 0, 0, 0, 0, 0]
-        today_vals =     [0, 0, 0, 0, 0, 0, 3, 10, 21, 26, 31, 0,  0, 0,  0,  0,  0,  0,  0, 0, 0, 0, 0, 0]
-    else:
-        yesterday_vals = [5, 4, 4, 3, 5, 8, 12, 15, 18, 20, 22, 21, 19, 20, 22, 21, 18, 15, 12, 10, 8, 7, 6, 5]
-        today_vals =     [4, 4, 3, 3, 4, 6, 10, 14, 16, 18, 21, 0,  0,  0,  0,  0,  0,  0,  0,  0, 0, 0, 0, 0]
-
     comp_df = pd.DataFrame({
         "Hour": hours_full,
         "Yesterday": yesterday_vals,
         "Today": today_vals
     }).set_index("Hour")
+    st.bar_chart(comp_df, height=300, use_container_width=True)
 
-    st.bar_chart(comp_df, height=320, use_container_width=True)
+# Common hourly mock curves for rendering
+solar_yesterday = [0, 0, 0, 0, 0, 0, 2, 13, 13, 25, 31, 28, 9, 21, 35, 32, 22, 12, 3, 0, 0, 0, 0, 0]
+solar_today =     [0, 0, 0, 0, 0, 0, 3, 10, 21, 26, 31, 0,  0, 0,  0,  0,  0,  0,  0, 0, 0, 0, 0, 0]
+load_yesterday =  [5, 4, 4, 3, 5, 8, 12, 15, 18, 20, 22, 21, 19, 20, 22, 21, 18, 15, 12, 10, 8, 7, 6, 5]
+load_today =      [4, 4, 3, 3, 4, 6, 10, 14, 16, 18, 21, 0,  0,  0,  0,  0,  0,  0,  0,  0, 0, 0, 0, 0]
+
+with tabs[0]:
+    render_feeder_dashboard("EED Research Wing Solar", True, "100.34", "315.08", [0, 0, 0, 0, 0, 0, 4, 11, 22, 25, 33, 25], solar_yesterday, solar_today)
+
+with tabs[1]:
+    render_feeder_dashboard("EED Research Wing Incomer 1", False, "210.15", "1,681.20", [8, 8, 7, 7, 10, 15, 20, 26, 25, 24, 27, 22], load_yesterday, load_today)
+
+with tabs[2]:
+    render_feeder_dashboard("EED Research Wing Incomer 2", False, "19.50", "156.00", [1, 1, 1, 1, 2, 2, 3, 3, 2, 2, 3, 2], load_yesterday, load_today)
+
+with tabs[3]:
+    render_feeder_dashboard("EED Solar", True, "91.13", "286.10", [0, 0, 0, 0, 0, 0, 3, 9, 18, 22, 34, 28], solar_yesterday, solar_today)
+
+with tabs[4]:
+    render_feeder_dashboard("EED Incomer 1", False, "240.00", "1,920.00", [10, 9, 8, 8, 12, 18, 24, 30, 28, 27, 29, 26], load_yesterday, load_today)
+
+with tabs[5]:
+    render_feeder_dashboard("EED Incomer 2", False, "23.40", "187.20", [1, 1, 1, 1, 2, 3, 4, 5, 4, 3, 3, 3], load_yesterday, load_today)
+
+with tabs[6]:
+    render_feeder_dashboard("EED Load Feeder", False, "95.40", "763.20", [3, 3, 2, 2, 4, 6, 8, 11, 10, 10, 11, 9], load_yesterday, load_today)
+
+with tabs[7]:
+    render_feeder_dashboard("Civil Load Feeder", False, "112.50", "900.00", [4, 4, 3, 3, 4, 6, 8, 12, 14, 13, 12, 11], load_yesterday, load_today)
