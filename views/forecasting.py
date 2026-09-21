@@ -57,7 +57,6 @@ if horizon == "24-Hour Predicted vs Actual Real Power":
     
     hours = [f"{h:02d}:00" for h in range(24)]
     
-    # Real power curves in kW
     pred_demand = [45.0, 42.0, 40.0, 38.0, 41.0, 55.0, 78.0, 110.0, 135.0, 140.0, 138.0, 142.0, 145.0, 141.0, 130.0, 122.0, 115.0, 98.0, 85.0, 72.0, 65.0, 58.0, 52.0, 48.0]
     actual_demand = [43.0, 41.0, 39.0, 38.0, 42.0, 53.0, 75.0, 108.0, 132.0, 138.0, 135.0, 140.0, 143.0, 139.0, 128.0, 120.0, None, None, None, None, None, None, None, None]
 
@@ -110,8 +109,8 @@ else:
 
     st.divider()
 
-    # 7-Day Peak Real Power Overlay Chart
-    st.subheader("📆 7-Day Peak Load Real Power: Predicted vs Actual (kW)")
+    # 7-Day Peak Load Real Power Overlay Chart
+    st.subheader("⚡ 7-Day Peak Load Real Power: Predicted vs Actual (kW)")
     
     days = [(datetime.now(IST) - timedelta(days=3-i)).strftime("%a (%b %d)") for i in range(7)]
     pred_7d_peak = [140.0, 142.0, 145.0, 145.0, 148.0, 138.0, 135.0]
@@ -127,7 +126,7 @@ else:
 
     st.divider()
 
-    # 7-Day Peak Solar Power Comparison
+    # 7-Day Peak Solar Power Comparison (Standard Line Chart)
     st.subheader("☀️ 7-Day Solar Peak Real Power: Predicted vs Actual (kW)")
     
     pred_solar_7d_peak = [38.0, 36.0, 39.0, 38.0, 35.0, 37.0, 38.0]
@@ -139,7 +138,7 @@ else:
         "Actual Solar Peak (kW)": actual_solar_7d_peak
     }).set_index("Day")
 
-    st.bar_chart(df_7d_solar, height=320)
+    st.line_chart(df_7d_solar, height=320)
 
     st.subheader("📋 7-Day Real Power Comparison Table (kW)")
     df_7d_combined = pd.DataFrame({
