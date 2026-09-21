@@ -30,7 +30,7 @@ def render_live_clock():
 render_live_clock()
 st.divider()
 
-# --- SIDEBAR: DASHBOARD LIBRARY MENU & CALENDAR ---
+# --- MAIN PAGE: DASHBOARD LIBRARY MENU & CALENDAR TOGGLE ---
 DASHBOARD_PAGES = [
     "1. Real Time Data",
     "3. EED Research Wing-Solar",
@@ -44,22 +44,25 @@ DASHBOARD_PAGES = [
     "Consumption & Generation"
 ]
 
-with st.sidebar:
-    st.header("📂 Dashboard Library")
-    selected_view = st.radio(
-        "Select Feeder or View:",
+menu_col, cal_col = st.columns([2, 1])
+
+with menu_col:
+    selected_view = st.selectbox(
+        "📂 **Select Feeder or Dashboard View:**",
         DASHBOARD_PAGES,
         index=0
     )
-    
-    st.divider()
-    st.subheader("📆 Campus Calendar")
-    calendar_embed_url = (
-        "https://calendar.google.com/calendar/embed?"
-        "height=300&wkst=1&ctz=Asia%2FKolkata&showTitle=0&showNav=1&showDate=1"
-        "&showPrint=0&showTabs=0&showCalendars=0&showTz=0&mode=AGENDA"
-    )
-    components.iframe(calendar_embed_url, height=280, scrolling=True)
+
+with cal_col:
+    with st.expander("📆 Open Campus Calendar", expanded=False):
+        calendar_embed_url = (
+            "https://calendar.google.com/calendar/embed?"
+            "height=280&wkst=1&ctz=Asia%2FKolkata&showTitle=0&showNav=1&showDate=1"
+            "&showPrint=0&showTabs=0&showCalendars=0&showTz=0&mode=AGENDA"
+        )
+        components.iframe(calendar_embed_url, height=260, scrolling=True)
+
+st.divider()
 
 # --- IMD WEATHER API FUNCTIONS ---
 @st.cache_data(ttl=3480)
