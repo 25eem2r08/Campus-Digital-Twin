@@ -42,52 +42,100 @@ render_live_clock()
 st.divider()
 
 # --- IMD WEATHER API FUNCTIONS ---
-@st.cache_data(ttl=3480)
+IMD_BASE = "https://api.imd.gov.in/api/v1"
+
+class IMDError(Exception):
+    pass
+
+@st.cache_data(ttl=3480, show_spinner=False)
 def get_imd_jwt_token():
-    auth_url = "https://api.imd.gov.in/api/oauth/token.php"
-    email = st.secrets.get("IMD_EMAIL", "")
-    password = st.secrets.get("IMD_PASSWORD", "")
-    if not email or not password:
-        return None
-    try:
-        res = requests.post(auth_url, json={"email": email, "password": password}, headers={"Content-Type": "application/json"}, timeout=5)
-        if res.status_code == 200:
-            return res.json().get("access_token")
-    except Exception:
-        return None
+    res = requests.post(
+        "https://api.imd.gov.in/api/oauth/token.php",
+        json={"email": st.secrets["IMD_EMAIL"], "password": st.secrets["IMD_PASSWORD"]},
+        timeout=10,
+    )
+    if res.status_code != 200:
+        raise IMDError(f"Token: HTTP {res.status_code} – {res.text[:200]}")
+    token = res.json().get("access_token")
+    if not token:
+        raise IMDError(f"Token: no access_token in response – {res.text[:200]}")
+    return token
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def imd_get(endpoint, params=None):
+    headers = {
+        "X-API-KEY": st.secrets["IMD_API_KEY"],
+        "Authorization": f"Bearer {get_imd_jwt_token()}",
+    }
+    r = requests.get(f"{IMD_BASE}/{endpoint}", params=params, headers=headers, timeout=10)
+    if r.status_code != 200:
+        raise IMDError(f"{endpoint}: HTTP {r.status_code} – {r.text[:200]}")
+    data = r.json()
+    rows = data if isinstance(data, list) else data.get("data", data)
+    if not rows:
+        raise IMDError(f"{endpoint}: empty response")
+    return rows
+
+WX_CODES = {5: "Haze", 10: "Mist", 17: "Thunderstorm", 21: "Rain", 25: "Rain showers",
+            29: "Thunderstorm", 60: "Light rain", 61: "Light rain", 62: "Moderate rain",
+            63: "Moderate rain", 64: "Heavy rain", 65: "Heavy rain", 80: "Light showers",
+            81: "Heavy showers", 95: "Thunderstorm with rain", 97: "Heavy thunderstorm"}
+
+def pick(d, *keys):
+    for k in keys:
+        if d.get(k) not in (None, "", "NA"):
+            return d[k]
     return None
 
-@st.cache_data(ttl=3600)
-def fetch_imd_weather():
-    api_key = st.secrets.get("IMD_API_KEY", "")
-    jwt_token = get_imd_jwt_token()
-    if not api_key or not jwt_token:
-        return {"temp": 32.5, "humidity": 55, "desc": "Partly Cloudy (Fallback)", "icon": "⛅"}
-    
+def get_weather():
+    errors = []
+    # 1) Live observation
     try:
-        res = requests.get("https://api.imd.gov.in/api/v1/cityforecast", headers={"X-API-KEY": api_key, "Authorization": f"Bearer {jwt_token}"}, timeout=10)
-        if res.status_code == 200:
-            data = res.json()
-            if isinstance(data, list):
-                for station in data:
-                    name = str(station.get("station_name") or station.get("city") or "").lower()
-                    if "hanamkonda" in name or "warangal" in name:
-                        return {
-                            "temp": float(station.get("max_temp") or 32.5),
-                            "humidity": int(station.get("humidity") or 55),
-                            "desc": str(station.get("weather_description") or "IMD Live Feed").title(),
-                            "icon": "🏛️"
-                        }
-    except Exception:
-        pass
-    return {"temp": 32.5, "humidity": 55, "desc": "Partly Cloudy (Fallback)", "icon": "⛅"}
+        wx = imd_get("current_wx", {"id": st.secrets["IMD_CURRENT_STATION_ID"]})[0]
+        code = pick(wx, "Weather Code", "Weather_Code")
+        return {
+            "temp": pick(wx, "Temperature"),
+            "humidity": pick(wx, "Humidity"),
+            "desc": WX_CODES.get(int(code), "Clear / no significant weather") if code else "—",
+            "source": f"IMD Current Weather · {pick(wx, 'Station')}",
+            "obs": f"{pick(wx, 'Date of Observation', 'Date')} {pick(wx, 'Time of Observation')} UTC",
+        }, errors
+    except Exception as e:
+        errors.append(str(e))
+    # 2) City forecast
+    try:
+        cf = imd_get("cityforecast", {"id": st.secrets["IMD_CITY_ID"]})[0]
+        return {
+            "temp": cf.get("Today_Max_temp"),
+            "humidity": cf.get("Relative_Humidity_at_1730"),
+            "desc": cf.get("Todays_Forecast"),
+            "source": f"IMD City Forecast · {cf.get('Station_Name')}",
+            "obs": f"{cf.get('Date')} (max temp at 17:30 IST)",
+        }, errors
+    except Exception as e:
+        errors.append(str(e))
+    return {"temp": "—", "humidity": "—", "desc": "IMD unavailable",
+            "source": "Fallback", "obs": ""}, errors
 
-# --- LIVE WEATHER & TOP OVERALL KPIS ---
-weather_data = fetch_imd_weather()
-w_col1, w_col2, w_col3 = st.columns(3)
-with w_col1: st.metric("Temperature", f"{weather_data['temp']} °C")
-with w_col2: st.metric("Humidity", f"{weather_data['humidity']} %")
-with w_col3: st.metric("Data Source", f"{weather_data['icon']} {weather_data['desc']}")
+weather, wx_errors = get_weather()
+w1, w2, w3 = st.columns(3)
+w1.metric("Temperature", f"{weather['temp']} °C")
+w2.metric("Humidity", f"{weather['humidity']} %")
+w3.metric("Conditions", weather["desc"])
+st.caption(f"Source: {weather['source']}  ·  Observed: {weather['obs']}  ·  Data: India Meteorological Department")
+
+with st.expander("IMD connection diagnostics", expanded=bool(wx_errors)):
+    for err in wx_errors:
+        st.error(err)
+    if st.button("Find Warangal / Hanamkonda station IDs"):
+        for ep in ["cityforecast_mapping", "current_wx"]:
+            try:
+                rows = pd.DataFrame(imd_get(ep))
+                match = rows.apply(lambda r: r.astype(str).str.contains("warangal|hanamkonda", case=False).any(), axis=1)
+                st.write(f"**{ep}**")
+                st.dataframe(rows[match])
+            except Exception as e:
+                st.error(str(e))
 
 st.divider()
 
