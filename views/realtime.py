@@ -14,6 +14,7 @@ import streamlit.components.v1 as components
 from datetime import datetime, timedelta
 
 from weather import render_weather_panel, IST
+from openmeteo import render_forecast_panel
 
 st.title("📡 Real-Time Operational Telemetry")
 
@@ -69,27 +70,51 @@ def hourly_curve(peak, role, factor=1.0, cutoff=None):
     return out
 
 
+def energy_to(curve, hour, fraction):
+    """kWh from 00:00 up to `hour` + `fraction` of that hour (hourly kW averages)."""
+    done = sum(v for v in curve[:hour] if v is not None)
+    current = curve[hour] or 0
+    return round(done + current * fraction, 2)
+
+
 @st.cache_data(ttl=60, show_spinner=False)
-def load_feeder_data(as_of_hour):
+def load_feeder_data(as_of_hour, as_of_minute):
     """
     Build the feeder dataset.
 
     >>> REPLACE THIS with the PME query once the SQL connection is available. <<<
     Return the same columns and every downstream section keeps working.
+
+    Placeholder note: the "now" kW is taken from the hourly curve so the KPI row,
+    cards, table and chart agree. Current is scaled with it; voltage and PF are
+    kept from the meter snapshot in FEEDERS.
     """
+    frac = as_of_minute / 60
     rows = []
     for f in FEEDERS:
         today = hourly_curve(f["peak"], f["role"], 1.00, cutoff=as_of_hour)
         yday = hourly_curve(f["peak"], f["role"], 1.06)
-        kwh_today = round(sum(v for v in today if v is not None), 2)
+        kw_now = today[as_of_hour]
+        current_now = round(f["current"] * kw_now / f["kw"], 2) if f["kw"] else 0.0
+        kwh_today = energy_to(today, as_of_hour, frac)
         tariff = SOLAR_TARIFF if f["role"] == "solar" else GRID_TARIFF
         rows.append({**f,
+                     "kw": kw_now,
+                     "current": current_now,
                      "today": today,
                      "yesterday": yday,
                      "kwh_today": kwh_today,
+                     # Same clock time yesterday — a fair comparison for a part-day.
+                     "kwh_yesterday_same_time": energy_to(yday, as_of_hour, frac),
                      "kwh_yesterday": round(sum(yday), 2),
                      "cost_today": round(kwh_today * tariff, 2)})
     return rows
+
+
+def pct_change(f):
+    """Today vs yesterday up to the same clock time, or None."""
+    base = f["kwh_yesterday_same_time"]
+    return (f["kwh_today"] - base) / base * 100 if base else None
 
 
 def feeder_status(f):
@@ -107,12 +132,13 @@ def feeder_status(f):
 with st.sidebar:
     st.header("📆 Campus Calendar")
     st.caption("Embedded Campus Maintenance & Load Schedule")
-    components.iframe(
-        "https://calendar.google.com/calendar/embed?"
-        "height=320&wkst=1&ctz=Asia%2FKolkata&showTitle=0&showNav=1&showDate=1"
-        "&showPrint=0&showTabs=0&showCalendars=0&showTz=0&mode=AGENDA",
-        height=350, scrolling=True,
-    )
+    cal_url = ("https://calendar.google.com/calendar/embed?"
+               "height=320&wkst=1&ctz=Asia%2FKolkata&showTitle=0&showNav=1&showDate=1"
+               "&showPrint=0&showTabs=0&showCalendars=0&showTz=0&mode=AGENDA")
+    if hasattr(st, "iframe"):      # newer Streamlit; components.iframe is deprecated
+        st.iframe(cal_url, height=350)
+    else:
+        components.iframe(cal_url, height=350, scrolling=True)
     st.divider()
     st.header("⚙️ View Settings")
     view_date = st.date_input("Date", value=datetime.now(IST).date(),
@@ -138,9 +164,13 @@ st.divider()
 sunrise, sunset = render_weather_panel()
 st.divider()
 
+# --- WEATHER FORECAST (Open-Meteo) -----------------------------------------
+om_sunrise, om_sunset = render_forecast_panel()
+st.divider()
+
 # --- DATA -------------------------------------------------------------------
 now = datetime.now(IST)
-data = load_feeder_data(now.hour)
+data = load_feeder_data(now.hour, now.minute)
 window = f"{now:%d-%m-%Y} 00:00 – {now:%H:%M} IST"
 
 solar = [f for f in data if f["role"] == "solar"]
@@ -189,13 +219,12 @@ ICONS = {"ok": "🟢", "warn": "🟡", "alert": "🔴"}
 grid_cols = st.columns(4)
 for i, (f, status, reason) in enumerate(alerts):
     with grid_cols[i % 4]:
-        delta = None
-        if f["kwh_yesterday"]:
-            change = (f["kwh_today"] - f["kwh_yesterday"]) / f["kwh_yesterday"] * 100
-            delta = f"{change:+.0f}% vs yesterday"
+        change = pct_change(f)
+        delta = f"{change:+.0f}% vs yesterday" if change is not None else None
         st.metric(f"{ICONS[status]} {f['name']}", f"{f['kw']:.2f} kW", delta,
-                  delta_color="off", help=reason, border=True)
-        if st.button("View detail", key=f"btn_{f['key']}", use_container_width=True):
+                  delta_color="off", help=f"{reason} · Energy compared with yesterday up "
+                  f"to {now:%H:%M}.", border=True)
+        if st.button("View detail", key=f"btn_{f['key']}", width="stretch"):
             st.session_state.selected_feeders = [f["name"]]
 
 st.divider()
@@ -225,7 +254,7 @@ styled = (table.style
           .format({"Voltage L-L Avg (V)": "{:.2f}", "Current Avg (A)": "{:.2f}",
                    "Real Power (kW)": "{:.2f}", "Power Factor": "{:.2f}",
                    "Energy Today (kWh)": "{:,.2f}", "Cumulative Energy (kWh)": "{:,.2f}"}))
-st.dataframe(styled, use_container_width=True, hide_index=True)
+st.dataframe(styled, width="stretch", hide_index=True)
 st.caption("Power factor shown as magnitude; sign convention reported separately as "
            "leading/lagging. Red = voltage outside ±10% of 415 V.")
 st.download_button("⬇️ Download network snapshot (CSV)",
@@ -244,21 +273,25 @@ def _hhmm_to_float(text):
 
 
 def night_bands():
-    """Shaded rectangles before sunrise and after sunset, if IMD gave us the times."""
+    """Shaded rectangles before sunrise and after sunset (IMD times, else Open-Meteo)."""
     sr, ss = _hhmm_to_float(sunrise), _hhmm_to_float(sunset)
+    if sr is None or ss is None:
+        sr, ss = _hhmm_to_float(om_sunrise), _hhmm_to_float(om_sunset)
     if sr is None or ss is None:
         return None
     bands = pd.DataFrame({"start": [0, ss], "end": [sr, 24]})
+    # Same axis title as the line layer, otherwise Vega-Lite merges the field
+    # names into it; clip keeps the band inside the plot when zoomed/panned.
     return (alt.Chart(bands)
-            .mark_rect(opacity=0.07, color="#1f2933")
-            .encode(x="start:Q", x2="end:Q"))
+            .mark_rect(opacity=0.07, color="#1f2933", clip=True)
+            .encode(x=alt.X("start:Q", title="Hour (IST)"), x2="end:Q"))
 
 
 def kw_chart(frame, colour_field=None, height=260):
-    base = alt.Chart(frame).mark_line(point=False, strokeWidth=2).encode(
+    base = alt.Chart(frame).mark_line(point=False, strokeWidth=2, clip=True).encode(
         x=alt.X("hour:Q", title="Hour (IST)",
-                scale=alt.Scale(domain=[0, 23]),
-                axis=alt.Axis(values=list(range(0, 24, 2)), format="d")),
+                scale=alt.Scale(domain=[0, 24]),
+                axis=alt.Axis(values=list(range(0, 25, 2)), format="d")),
         y=alt.Y("kw:Q", title="Real Power (kW)"),
         tooltip=[alt.Tooltip("hour:Q", title="Hour"),
                  alt.Tooltip("kw:Q", title="kW", format=".2f")] +
@@ -279,7 +312,14 @@ def long_form(feeder, which="today"):
 st.subheader("⚡ Feeder Analytics")
 
 names = [f["name"] for f in data]
-st.session_state.setdefault("selected_feeders", [names[3]])
+default_pick = next((f["name"] for f in data if f["role"] == "solar"), names[0])
+if "selected_feeders" not in st.session_state:
+    st.session_state.selected_feeders = [default_pick]
+else:
+    # Drop names that no longer exist (e.g. after the PME feeder list changes),
+    # otherwise st.multiselect raises on a value outside its options.
+    st.session_state.selected_feeders = [n for n in st.session_state.selected_feeders
+                                         if n in names]
 selected = st.multiselect("Select one feeder for detail, or several to compare",
                           names, key="selected_feeders")
 
@@ -294,16 +334,20 @@ elif len(selected) == 1:
     label = "Generation" if is_solar else "Consumption"
 
     d1, d2, d3 = st.columns([1, 1, 2])
+    change = pct_change(f)
     d1.metric(f"{label} Today", f"{f['kwh_today']:,.2f} kWh",
-              f"{(f['kwh_today'] - f['kwh_yesterday']) / f['kwh_yesterday'] * 100:+.1f}% vs yesterday"
-              if f["kwh_yesterday"] else None,
-              delta_color="normal" if is_solar else "inverse", border=True)
+              f"{change:+.1f}% vs yesterday" if change is not None else None,
+              delta_color="normal" if is_solar else "inverse",
+              help=f"Compared with yesterday 00:00–{now:%H:%M} "
+                   f"({f['kwh_yesterday_same_time']:,.2f} kWh). "
+                   f"Yesterday's full day: {f['kwh_yesterday']:,.2f} kWh.",
+              border=True)
     d2.metric("Cost" if not is_solar else "Value at Solar Tariff",
               f"₹ {f['cost_today']:,.2f}",
               help=f"₹{SOLAR_TARIFF if is_solar else GRID_TARIFF}/kWh", border=True)
     with d3:
         st.caption(f"Real power today · {window}")
-        st.altair_chart(kw_chart(long_form(f)), use_container_width=True)
+        st.altair_chart(kw_chart(long_form(f)), width="stretch")
 
     st.markdown(f"##### {label} Comparison — Today vs Yesterday")
     comp = pd.concat([
@@ -321,12 +365,12 @@ elif len(selected) == 1:
         tooltip=["Day:N", alt.Tooltip("hour:O", title="Hour"),
                  alt.Tooltip("kWh:Q", format=".2f")],
     ).properties(height=300)
-    st.altair_chart(bars, use_container_width=True)
+    st.altair_chart(bars, width="stretch")
 
     detail = pd.DataFrame({"Hour": [f"{h:02d}:00" for h in range(24)],
                            "Today (kW)": f["today"], "Yesterday (kW)": f["yesterday"]})
     with st.expander("Hourly values"):
-        st.dataframe(detail, use_container_width=True, hide_index=True)
+        st.dataframe(detail, width="stretch", hide_index=True)
     st.download_button("⬇️ Download hourly data (CSV)", detail.to_csv(index=False).encode(),
                        f"{f['key']}_{now:%Y%m%d}.csv", "text/csv", key="dl_detail")
 
@@ -339,20 +383,21 @@ else:
         part["Feeder"] = name
         frames.append(part)
     st.altair_chart(kw_chart(pd.concat(frames), colour_field="Feeder", height=340),
-                    use_container_width=True)
+                    width="stretch")
 
     summary = pd.DataFrame([{
         "Feeder": by_name[n]["name"],
         "Now (kW)": by_name[n]["kw"],
         "Today (kWh)": by_name[n]["kwh_today"],
-        "Yesterday (kWh)": by_name[n]["kwh_yesterday"],
-        "Change": f"{(by_name[n]['kwh_today'] - by_name[n]['kwh_yesterday']) / by_name[n]['kwh_yesterday'] * 100:+.1f}%"
-                  if by_name[n]["kwh_yesterday"] else "—",
+        f"Yesterday to {now:%H:%M} (kWh)": by_name[n]["kwh_yesterday_same_time"],
+        "Change": f"{pct_change(by_name[n]):+.1f}%"
+                  if pct_change(by_name[n]) is not None else "—",
+        "Yesterday full day (kWh)": by_name[n]["kwh_yesterday"],
         "Cost (₹)": by_name[n]["cost_today"],
     } for n in selected])
-    st.dataframe(summary, use_container_width=True, hide_index=True)
+    st.dataframe(summary, width="stretch", hide_index=True)
     st.download_button("⬇️ Download comparison (CSV)", summary.to_csv(index=False).encode(),
                        f"feeder_comparison_{now:%Y%m%d}.csv", "text/csv", key="dl_compare")
 
 st.caption("Shaded areas on the line charts mark hours before sunrise and after sunset "
-           "(IMD sun/moon times for the campus location).")
+           "(IMD sun times for the campus; Open-Meteo times if IMD is unavailable).")
