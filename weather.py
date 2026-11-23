@@ -9,6 +9,7 @@ IMD (api.imd.gov.in)  : 7-day city forecast, station nowcast warnings, sun/moon 
                         secrets -- add them once IMD grants access and nothing else
                         needs to change.
 Open-Meteo            : current temperature / humidity / wind. No key required.
+                        The hourly/daily forecast panel is in openmeteo.py.
 
 Every value rendered carries its own source label, so IMD forecast figures are never
 passed off as live observations.
@@ -35,6 +36,14 @@ OPEN_METEO = "https://api.open-meteo.com/v1/forecast"
 EMPTY_VALUES = (None, "", "NA", "N/A", "-", "--", "null")
 
 
+def secret(key, default=None):
+    """st.secrets.get that also works when no secrets.toml exists."""
+    try:
+        return st.secrets.get(key, default)
+    except Exception:          # StreamlitSecretNotFoundError and friends
+        return default
+
+
 class IMDError(Exception):
     """Raised when an IMD endpoint fails or returns nothing usable."""
 
@@ -57,8 +66,8 @@ def to_float(value):
 # --- IMD TRANSPORT ----------------------------------------------------------
 @st.cache_data(ttl=3480, show_spinner=False)
 def _imd_token():
-    email = st.secrets.get("IMD_EMAIL")
-    password = st.secrets.get("IMD_PASSWORD")
+    email = secret("IMD_EMAIL")
+    password = secret("IMD_PASSWORD")
     if not email or not password:
         raise IMDError("IMD_EMAIL / IMD_PASSWORD missing from secrets")
     res = requests.post(
@@ -77,7 +86,7 @@ def _imd_token():
 @st.cache_data(ttl=1800, show_spinner=False)
 def imd_get(endpoint, params=None):
     """GET an IMD endpoint. Raises IMDError; never returns a silent fallback."""
-    api_key = st.secrets.get("IMD_API_KEY")
+    api_key = secret("IMD_API_KEY")
     if not api_key:
         raise IMDError("IMD_API_KEY missing from secrets")
     headers = {"X-API-KEY": api_key, "Authorization": f"Bearer {_imd_token()}"}
@@ -159,7 +168,7 @@ def fetch_imd_current():
     """
     errors = []
 
-    station_id = st.secrets.get("IMD_CURRENT_STATION_ID")
+    station_id = secret("IMD_CURRENT_STATION_ID")
     if station_id:
         try:
             wx = imd_get("current_wx", {"id": station_id})[0]
@@ -177,8 +186,8 @@ def fetch_imd_current():
         except Exception as e:
             errors.append(str(e))
 
-    aws_id = st.secrets.get("IMD_AWS_STATION_ID")
-    state_id = st.secrets.get("IMD_STATE_ID")  # 1 = Telangana
+    aws_id = secret("IMD_AWS_STATION_ID")
+    state_id = secret("IMD_STATE_ID")  # 1 = Telangana
     if aws_id or state_id:
         try:
             rows = imd_get("aws_data", {"id": aws_id} if aws_id else {"sid": state_id})
@@ -220,7 +229,7 @@ def _utc_text_to_ist(text):
 # --- IMD 7-DAY CITY FORECAST -----------------------------------------------
 def fetch_imd_forecast():
     """7-day forecast. Tries cityforecastloc first (includes lat/lon), then cityforecast."""
-    city_id = st.secrets.get("IMD_CITY_ID")
+    city_id = secret("IMD_CITY_ID")
     if not city_id:
         return None, ["IMD_CITY_ID missing from secrets"]
 
@@ -263,7 +272,7 @@ NOWCAST_COLOURS = {1: ("🟢", "No significant weather"), 2: ("🟡", "Watch"),
 
 def fetch_imd_nowcast():
     """Short-range warning for the campus station. Colour 1 = green (no weather)."""
-    station = st.secrets.get("IMD_NOWCAST_STATION", "Warangal")
+    station = secret("IMD_NOWCAST_STATION", "Warangal")
     try:
         row = imd_get("stationnowcast", {"id": station})[0]
         colour = int(to_float(pick(row, "color")) or 1)
@@ -299,21 +308,19 @@ def fetch_imd_sunmoon():
 # --- RENDERING --------------------------------------------------------------
 def render_weather_panel():
     """Draws the full weather block. Returns (sunrise, sunset) as 'HH:MM' for chart use."""
-    errors = []
-
-    imd_current, e = fetch_imd_current()
-    errors += e
+    # The fetchers also return error lists; they are no longer shown on the page.
+    imd_current, _ = fetch_imd_current()
     open_meteo = None
     if imd_current is None:
         try:
             open_meteo = fetch_open_meteo()
-        except Exception as exc:
-            errors.append(f"open-meteo: {exc}")
+        except Exception:
+            open_meteo = None
 
     current = imd_current or open_meteo
-    forecast, e = fetch_imd_forecast(); errors += e
-    nowcast, e = fetch_imd_nowcast();   errors += e
-    sunmoon, e = fetch_imd_sunmoon();   errors += e
+    forecast, _ = fetch_imd_forecast()
+    nowcast, _ = fetch_imd_nowcast()
+    sunmoon, _ = fetch_imd_sunmoon()
 
     # Nowcast banner, only when there is something to say
     if nowcast and nowcast["colour"] > 1:
@@ -334,7 +341,12 @@ def render_weather_panel():
     else:
         c1.metric("Temperature", "—")
         c2.metric("Humidity", "—")
-        st.caption("Current conditions unavailable — see diagnostics below.")
+        st.caption("Current conditions are unavailable right now.")
+
+    # Sun times: IMD sunmoon first, then the IMD city forecast. These no longer
+    # depend on the forecast call succeeding.
+    sunrise = (sunmoon or {}).get("sunrise") or (forecast or {}).get("sunrise")
+    sunset = (sunmoon or {}).get("sunset") or (forecast or {}).get("sunset")
 
     # IMD forecast
     if forecast:
@@ -347,42 +359,12 @@ def render_weather_panel():
                   if forecast["rain_24h"] is not None else "—")
         f4.metric("Outlook", today["Forecast"])
 
-        sunrise = (sunmoon or {}).get("sunrise") or forecast.get("sunrise")
-        sunset = (sunmoon or {}).get("sunset") or forecast.get("sunset")
         bits = [f"Station: {forecast['station']}", f"Issued: {forecast['issued']}"]
         if sunrise and sunset:
             bits.append(f"Sunrise {sunrise} · Sunset {sunset} IST")
         st.caption("  ·  ".join(bits) + "  ·  Data: India Meteorological Department")
 
         with st.expander("7-day IMD outlook"):
-            st.dataframe(forecast["days"], use_container_width=True, hide_index=True)
-    else:
-        sunrise = sunset = None
-
-    # Diagnostics
-    with st.expander("Weather source diagnostics", expanded=False):
-        granted = []
-        if imd_current:
-            granted.append(imd_current["source"])
-        if forecast:
-            granted.append(f"IMD {forecast['endpoint']}")
-        if nowcast:
-            granted.append("IMD stationnowcast")
-        if sunmoon:
-            granted.append("IMD sunmoon")
-        if open_meteo:
-            granted.append("Open-Meteo (current conditions)")
-        st.success("Active: " + ", ".join(granted) if granted else "No source responded.")
-        for err in errors:
-            st.warning(err)
-        st.caption(
-            "current_wx / aws_data are attempted automatically once "
-            "IMD_CURRENT_STATION_ID or IMD_AWS_STATION_ID is set in secrets."
-        )
-        if st.checkbox("Show raw IMD forecast response"):
-            try:
-                st.json(imd_get("cityforecast", {"id": st.secrets.get("IMD_CITY_ID")})[0])
-            except Exception as exc:
-                st.error(str(exc))
+            st.dataframe(forecast["days"], width="stretch", hide_index=True)
 
     return sunrise, sunset
